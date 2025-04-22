@@ -23,7 +23,6 @@ const resetPassword = asyncHandler(async (req, res) => {});
 const changePassword = asyncHandler(async (req, res) => {});
 
 // User system
-
 const userProfile = asyncHandler(async (req, res) => {});
 
 const updateProfile = asyncHandler(async (req, res) => {});
@@ -36,7 +35,6 @@ const logoutAllDevices = asyncHandler(async (req, res) => {});
 
 const updateNotificationSettings = asyncHandler(async (req, res) => {});
 
-
 // Admin system
 const getAllUsers = asyncHandler(async (req, res) => {});
 
@@ -47,7 +45,6 @@ const deleteUser = asyncHandler(async (req, res) => {});
 const banUser = asyncHandler(async (req, res) => {});
 
 const unBanUser = asyncHandler(async (req, res) => {});
-
 
 // Device system
 const getLoginLogs = asyncHandler(async (req, res) => {});
@@ -77,5 +74,5 @@ export {
   updateUserRole,
   unBanUser,
   logoutAllDevices,
-  updateNotificationSettings
+  updateNotificationSettings,
 };
