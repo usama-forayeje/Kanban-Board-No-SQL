@@ -11,6 +11,14 @@ const ProjectSchema = new Schema(
       type: String,
       required: true,
     },
+    visibility: {
+      type: Boolean,
+      default: false,
+    },
+    archived: {
+      type: Boolean,
+      default: false,
+    },
     createdBy: {
       type: Schema.Types.ObjectId,
       ref: "User",

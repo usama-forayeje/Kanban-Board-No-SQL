@@ -3,8 +3,7 @@ import nodemailer from "nodemailer";
 import asyncHandler from "./async-handler.js";
 import { ApiError } from "./api-errors.js";
 
-
-const sendMail = async (options) => {
+export const sendMail = async (options) => {
   var mailGenerator = new Mailgen({
     theme: "default",
     product: {
@@ -28,7 +27,7 @@ const sendMail = async (options) => {
   });
 
   const mailOptions = {
-    from: "taskmeneger@task.com", // sender address
+    from: process.env.MAILTRAP_SENDER_ADDRESS, // sender address
     to: options.email, // list of receivers
     subject: options.subject, // Subject line
     text: emailText, // plain text body
@@ -38,11 +37,11 @@ const sendMail = async (options) => {
   try {
     await transporter.sendMail(mailOptions);
   } catch (error) {
-    ApiError("Email not sent", 500);
+    throw new ApiError(500, "Email not sent");
   }
 };
 
-const verificationMailGenContent = asyncHandler(async (username, verificationUrl) => {
+export const verificationMailGenContent = async (username, verificationUrl) => {
   return {
     body: {
       name: username,
@@ -58,9 +57,9 @@ const verificationMailGenContent = asyncHandler(async (username, verificationUrl
       outro: "Need help, or have questions? Just reply to this email, we'd love to help.",
     },
   };
-});
+};
 
-const forgotPasswordMailGenContent = asyncHandler(async (username, passwordResetUrl) => {
+export const forgotPasswordMailGenContent = async (username, passwordResetUrl) => {
   return {
     body: {
       name: username,
@@ -76,4 +75,4 @@ const forgotPasswordMailGenContent = asyncHandler(async (username, passwordReset
       outro: "Need help, or have questions? Just reply to this email, we'd love to help.",
     },
   };
-});
+};

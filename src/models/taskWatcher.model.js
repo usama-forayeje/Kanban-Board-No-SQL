@@ -1,6 +1,6 @@
 import mongoose, { Schema } from "mongoose";
 
-const commentSchema = new mongoose.Schema(
+const taskWatcherSchema = new Schema(
   {
     taskId: {
       type: Schema.Types.ObjectId,
@@ -12,12 +12,12 @@ const commentSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
-    content: {
-      type: String,
-      required: true,
+    addedAt: {
+      type: Date,
+      default: Date.now,
     },
   },
-  { timestamps: true }
+  { timestamps: false }
 );
 
-export const Comment = mongoose.model("Comment", commentSchema);
+export const TaskWatcher = mongoose.model("TaskWatcher", taskWatcherSchema);

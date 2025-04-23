@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import connectDB from "../config/db.js";
 import app from "./app.js";
+import { logger } from "./utils/logger.js";
 
 dotenv.config({
   path: "./.env",
@@ -12,10 +13,11 @@ const startServer = async () => {
   try {
     await connectDB();
     app.listen(PORT, () => {
-      console.log(`✅ Server is running on port ${PORT}`);
+      logger.info("🔗 Connected to the database successfully");
+      logger.success(`Server is running on port ${PORT}`);
     });
   } catch (error) {
-    console.log("❎ Failed to connect to the database");
+    logger.error("❎ Failed to connect to the database");
   }
 };
 
