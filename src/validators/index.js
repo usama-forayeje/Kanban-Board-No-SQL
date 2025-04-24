@@ -71,7 +71,7 @@ const userResetPasswordValidator = () => {
       .notEmpty()
       .withMessage("🔐 Reset forgotPasswordToken is required"),
 
-    body("newPassword")
+    body("password")
       .trim()
       .notEmpty()
       .withMessage("🔑 New password is required")
@@ -106,7 +106,6 @@ const socialLoginValidator = () => {
   return [
     body("email").isEmail().withMessage("A valid email is required"),
 
-    body("displayName").notEmpty().withMessage("Display name is required"),
 
     body("provider")
       .notEmpty()

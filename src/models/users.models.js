@@ -54,7 +54,9 @@ const UserSchema = new Schema(
     },
     password: {
       type: String,
-      required: [true, "Password is required"],
+      required: function () {
+        return this.provider === "local"; 
+      },
     },
     otp: {
       type: String,
@@ -122,38 +124,38 @@ UserSchema.pre("save", async function (next) {
 });
 
 // // Instance method to check password match
-// UserSchema.methods.isPasswordMatch = async function (password) {
-//   return await bcrypt.compare(password, this.password);
-// };
+UserSchema.methods.isPasswordMatch = async function (password) {
+  return await bcrypt.compare(password, this.password);
+};
 
 // // Method to generate access token
-// UserSchema.methods.generateAccessToken = function () {
-//   return jwt.sign({ _id: this._id, role: this.role }, process.env.JWT_SECRET, {
-//     expiresIn: process.env.JWT_EXPIRES_IN || "1h", // Default expiration to 1 hour if not set
-//   });
-// };
+UserSchema.methods.generateAccessToken = function () {
+  return jwt.sign({ _id: this._id, role: this.role }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "1h", // Default expiration to 1 hour if not set
+  });
+};
 
 // // Method to generate refresh token
-// UserSchema.methods.generateRefreshToken = function () {
-//   return jwt.sign({ _id: this._id, role: this.role }, process.env.REFRESH_TOKEN_SECRET, {
-//     expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || "7d", // Default expiration to 7 days
-//   });
-// };
+UserSchema.methods.generateRefreshToken = function () {
+  return jwt.sign({ _id: this._id, role: this.role }, process.env.REFRESH_TOKEN_SECRET, {
+    expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN || "7d", // Default expiration to 7 days
+  });
+};
 
 // // Method to generate temporary token (for email verification, forgot password, etc.)
-// UserSchema.methods.generateTemporaryToken = function () {
-//   const unHashedToken = crypto.randomBytes(20).toString("hex");
+UserSchema.methods.generateTemporaryToken = function () {
+  const unHashedToken = crypto.randomBytes(20).toString("hex");
 
-//   const hashedToken = crypto.createHash("sha256").update(unHashedToken).digest("hex");
+  const hashedToken = crypto.createHash("sha256").update(unHashedToken).digest("hex");
 
-//   const tokenExpiry = Date.now() + 20 * 60 * 1000; // 20 minutes
+  const tokenExpiry = Date.now() + 20 * 60 * 1000; // 20 minutes
 
-//   return {
-//     unHashedToken,
-//     hashedToken,
-//     tokenExpiry,
-//   };
-// };
+  return {
+    unHashedToken,
+    hashedToken,
+    tokenExpiry,
+  };
+};
 
 // Export User Model
 export const User = mongoose.model("User", UserSchema);

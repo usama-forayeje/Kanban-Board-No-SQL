@@ -1,14 +1,19 @@
-import { AvailableUserRoles, UserRolesEnum } from "../constants/roles.js";
+import { UserRolesEnum } from "../constants/roles.js";
 import { User } from "../models/users.models.js";
 import { ApiResponse } from "../utils/api-response.js";
 import asyncHandler from "../utils/async-handler.js";
 import { generateTokens } from "../utils/jwt.js";
-import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { sendMail, verificationMailGenContent } from "../utils/mail.js";
+import {
+  forgotPasswordMailGenContent,
+  sendMail,
+  twoFactorAuthMailGenContent,
+  verificationMailGenContent,
+} from "../utils/mail.js";
 import { ApiError } from "../utils/api-errors.js";
 import { UAParser } from "ua-parser-js";
 import { generateOTP } from "../constants/generateOTP.js";
+import { logger } from "../utils/logger.js";
 
 // Auth system
 const signUp = asyncHandler(async (req, res) => {
@@ -19,22 +24,20 @@ const signUp = asyncHandler(async (req, res) => {
     throw new ApiError(409, "User already exists with this email.");
   }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  const unHashedToken = crypto.randomBytes(32).toString("hex");
-  const hashedToken = crypto.createHash("sha256").update(unHashedToken).digest("hex");
-
-  const expiryTime = new Date(Date.now() + 30 * 60 * 1000); // 30 mins
-
-  const user = await User.create({
+  const user = new User({
     email,
     userName,
     displayName: userName,
-    password: hashedPassword,
-    emailVerificationToken: hashedToken,
-    emailVerificationTokenExpiry: expiryTime,
+    password,
     role: UserRolesEnum.MEMBER,
   });
+
+  // 🔐 Generate verification token using method
+  const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
+  user.emailVerificationToken = hashedToken;
+  user.emailVerificationTokenExpiry = tokenExpiry;
+
+  await user.save();
 
   // ✅ CALL verificationMailGenContent here
   const mailContent = await verificationMailGenContent(
@@ -64,7 +67,7 @@ const signUp = asyncHandler(async (req, res) => {
       },
     })
   );
-});
+}); // ok
 
 const verifyUser = asyncHandler(async (req, res) => {
   const rawToken = req.params.emailVerificationToken;
@@ -75,14 +78,13 @@ const verifyUser = asyncHandler(async (req, res) => {
 
   const hashedToken = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-  const user = await User.findOne({ emailVerificationToken: hashedToken });
+  const user = await User.findOne({
+    emailVerificationToken: hashedToken,
+    emailVerificationTokenExpiry: { $gt: Date.now() },
+  });
 
   if (!user) {
     return res.status(400).json(new ApiResponse(400, "Invalid or expired verification token"));
-  }
-
-  if (user.emailVerificationTokenExpiry < Date.now()) {
-    return res.status(400).json(new ApiResponse(400, "Verification token has expired"));
   }
 
   user.isEmailVerified = true;
@@ -92,7 +94,7 @@ const verifyUser = asyncHandler(async (req, res) => {
   await user.save();
 
   return res.status(200).json(new ApiResponse(200, "Email verified successfully"));
-});
+}); //ok
 
 const signIn = asyncHandler(async (req, res) => {
   const { email, password } = req.body;
@@ -102,9 +104,8 @@ const signIn = asyncHandler(async (req, res) => {
   if (!user) {
     throw new ApiError(401, "User not found with this email.");
   }
-
-  const isPasswordMatch = bcrypt.compare(password, user.password);
-
+  // 2️⃣ Check password match
+  const isPasswordMatch = await user.isPasswordMatch(password);
   if (!isPasswordMatch) {
     throw new ApiError(401, "Password is incorrect.");
   }
@@ -115,7 +116,8 @@ const signIn = asyncHandler(async (req, res) => {
   }
 
   // 4️⃣ Generate tokens
-  const { accessToken, refreshToken } = await generateTokens(user);
+  const accessToken = user.generateAccessToken();
+  const refreshToken = user.generateRefreshToken();
 
   // 5️⃣ Save refreshToken + audit logs
   const parser = new UAParser(req.headers["user-agent"]);
@@ -141,7 +143,7 @@ const signIn = asyncHandler(async (req, res) => {
   // 6️⃣ Set refreshToken as cookie
   res.cookie("refreshToken", refreshToken, {
     httpOnly: true,
-    secure: false,
+    secure: process.env.NODE_ENV === "production", // Secure cookies in production
     sameSite: "Strict",
     maxAge: 24 * 60 * 60 * 1000, // 1 day
   });
@@ -160,11 +162,12 @@ const signIn = asyncHandler(async (req, res) => {
       },
     })
   );
-});
+}); // ok
 
 const signOut = asyncHandler(async (req, res) => {
   const { refreshToken } = req.cookies;
 
+  // Check if there's a token in the cookie
   if (!refreshToken) {
     return res.status(200).json(new ApiResponse(200, "Already signed out"));
   }
@@ -172,25 +175,32 @@ const signOut = asyncHandler(async (req, res) => {
   const user = await User.findOne({ refreshToken });
 
   if (user) {
+    // Clear the refresh token from the user's data
     user.refreshToken = null;
-    user.refreshTokenExpiry = null; // if you store expiry
     await user.save({ validateBeforeSave: false });
   }
 
-  // 🍪 Clear refreshToken cookie
+  // Clear refreshToken and accessToken cookies
   res.clearCookie("refreshToken", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production", // Ensure this is set correctly for production
+    sameSite: "Strict",
+    expires: new Date(0),
+  });
+
+  res.clearCookie("accessToken", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production", // Ensure this is set correctly for production
     sameSite: "Strict",
     expires: new Date(0),
   });
 
   return res.status(200).json(new ApiResponse(200, "User signed out successfully"));
-});
+}); // ok
 
 const refreshToken = asyncHandler(async (req, res) => {
   const { refreshToken } = req.cookies;
-
+  logger.info("Refresh token from cookie:", refreshToken);
   if (!refreshToken) {
     throw new ApiError(401, "🔒 Refresh token missing. Please log in again.");
   }
@@ -201,10 +211,14 @@ const refreshToken = asyncHandler(async (req, res) => {
   } catch (err) {
     throw new ApiError(403, "⛔ Invalid or expired refresh token.");
   }
-
+  logger.info("decoded refresh token: " + decoded);
   const user = await User.findById(decoded._id);
 
-  if (!user || user.refreshToken !== refreshToken) {
+  if (!user) {
+    throw new ApiError(404, "❌ User not found.");
+  }
+
+  if (user.refreshToken !== refreshToken) {
     throw new ApiError(403, "⛔ Refresh token mismatch.");
   }
 
@@ -213,7 +227,7 @@ const refreshToken = asyncHandler(async (req, res) => {
   });
 
   return res.status(200).json(new ApiResponse(200, "✅ Token refreshed", { accessToken }));
-});
+}); // Problematic
 
 const socialLogin = asyncHandler(async (req, res) => {
   const { email, displayName, profileImage, provider } = req.body;
@@ -267,7 +281,7 @@ const socialLogin = asyncHandler(async (req, res) => {
       },
     })
   );
-});
+}); // ok
 
 const twoFactorAuth = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -282,14 +296,20 @@ const twoFactorAuth = asyncHandler(async (req, res) => {
   user.otp = otp;
   user.otpExpiry = otpExpiry;
 
+  const { unHashedToken } = user.generateTemporaryToken();
+
   await user.save({ validateBeforeSave: false });
+
+  const mailContent = await twoFactorAuthMailGenContent(user.userName, otp);
 
   await sendMail({
     email: user.email,
-    subject: "🔐 Your Otp Code",
-    text: `Your OTP code is ${otp}. It is valid for 5 minutes.`,
+    subject: "🔐 Two-factor Authentication OTP",
+    mailgenContent: mailContent,
   });
-});
+
+  return res.status(200).json(new ApiResponse(200, "OTP sent to email.", { otp, unHashedToken }));
+}); // ok
 
 const verifyOTP = asyncHandler(async (req, res) => {
   const { otp } = req.body;
@@ -303,14 +323,14 @@ const verifyOTP = asyncHandler(async (req, res) => {
 
   user.otp = undefined;
   user.otpExpiry = undefined;
-  user.isTowFactorVerified = true;
+  user.isTwoFactorVerified = true;
 
   await user.save();
 
   return res
     .status(200)
     .json(new ApiResponse(200, "Tow factor authentication verified successfully."));
-});
+}); // ok
 
 // password  system
 const forgotPassword = asyncHandler(async (req, res) => {
@@ -325,15 +345,15 @@ const forgotPassword = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Email is not verified.");
   }
 
-  const resetToken = crypto.randomBytes(32).toString("hex");
+  const { unHashedToken, hashedToken, tokenExpiry } = user.generateTemporaryToken();
 
-  user.forgotPasswordToken = resetToken;
-  user.forgotPasswordTokenExpiry = Date.now() + 60 * 60 * 1000; // 1 hour
+  user.forgotPasswordToken = hashedToken;
+  user.forgotPasswordTokenExpiry = tokenExpiry;
 
   await user.save({ validateBeforeSave: false });
 
   // 👉 Send reset password email here
-  const resetURL = `${process.env.BASE_URL}/reset-password/${resetToken}`;
+  const resetURL = `${process.env.BASE_URL}/reset-password/${unHashedToken}`;
   const mailContent = await forgotPasswordMailGenContent(user.userName, resetURL);
 
   await sendMail({
@@ -343,7 +363,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
   });
 
   return res.status(200).json(new ApiResponse(200, "Password reset link sent to email."));
-});
+}); // ok
 
 const resetPassword = asyncHandler(async (req, res) => {
   const { password } = req.body;
@@ -353,7 +373,6 @@ const resetPassword = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Reset token and new password are required.");
   }
 
-  // 🔐 Hash the token to match with DB
   const hashedToken = crypto.createHash("sha256").update(forgotPasswordToken).digest("hex");
 
   // 🔎 Find user with valid token
@@ -367,7 +386,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   }
 
   // 🔑 Hash the new password
-  user.password = await bcrypt.hash(password, 10);
+  user.password = password;
 
   // 🔄 Clear reset token & expiry
   user.forgotPasswordToken = undefined;
@@ -377,7 +396,7 @@ const resetPassword = asyncHandler(async (req, res) => {
   await user.save({ validateBeforeSave: false });
 
   return res.status(200).json(new ApiResponse(200, "✅ Password has been reset successfully."));
-});
+}); // ok
 
 const changePassword = asyncHandler(async (req, res) => {
   const userId = req.user._id;
@@ -389,18 +408,17 @@ const changePassword = asyncHandler(async (req, res) => {
     throw new ApiError(404, "❌ User not found.");
   }
 
-  const isOldPasswordCorrect = bcrypt.compare(oldPassword, user.password);
+  const isOldPasswordCorrect = await user.isPasswordMatch(oldPassword);
   if (!isOldPasswordCorrect) {
     throw new ApiError(401, "⛔ Old password is incorrect.");
   }
 
-  const isSamePassword = bcrypt.compare(newPassword, user.password);
+  const isSamePassword = await user.isPasswordMatch(newPassword);
   if (isSamePassword) {
     throw new ApiError(400, "❌ New password are same old password.");
   }
 
-  const salt = await bcrypt.genSalt(10);
-  user.password = await bcrypt.hash(newPassword, salt);
+  user.password = newPassword;
   user.passwordChangedAt = new Date();
 
   await user.save({ validateBeforeSave: false });
@@ -408,7 +426,7 @@ const changePassword = asyncHandler(async (req, res) => {
   return res
     .status(200)
     .json(new ApiResponse(200, "🔐 Password changed successfully. Please login again."));
-});
+}); // ok
 
 export {
   signUp,

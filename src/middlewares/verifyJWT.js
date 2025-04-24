@@ -1,29 +1,22 @@
-import jwt from "jsonwebtoken"; // এইটা লাগবেই!
-import { User } from "../models/users.models.js";
+import jwt from "jsonwebtoken";
 import { ApiError } from "../utils/api-errors.js";
 import asyncHandler from "../utils/async-handler.js";
+import { logger } from "../utils/logger.js";
 
 const verifyJWT = asyncHandler(async (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  let token = req.cookies?.token || req.headers.authorization?.split(" ")[1];
 
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return next(new ApiError(401, "Unauthorized - No token provided"));
+  if (!token) {
+    return res.status(401).json(new ApiError(401, "You need to login to access this route"));
   }
-
-  const token = authHeader.split(" ")[1];
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = await User.findById(decoded._id).select("-password");
-
-    if (!req.user) {
-      return next(new ApiError(401, "Unauthorized - User not found"));
-    }
-
+    req.user = decoded; // Make sure to assign to req.user
+    logger.info("User verified: ", req.user); // Debugging line
     next();
   } catch (error) {
-    console.log("JWT Verification Error:", error.message);
-    return next(new ApiError(401, "Unauthorized - Invalid token"));
+    return next(new ApiError(401, "Unauthorized - Invalid token", error));
   }
 });
 

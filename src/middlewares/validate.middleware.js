@@ -1,6 +1,6 @@
-import { validationResult } from "express-validator";
-import { ApiError } from "../utils/api-errors.js";
 
+import { validationResult } from "express-validator";
+import { logger } from "../utils/logger.js";
 
 export const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -12,18 +12,20 @@ export const validate = (req, res, next) => {
   const extractedErrors = errors.array().map((err) => ({
     field: err.param,
     message: err.msg,
-    location: err.location, // e.g., 'body', 'query', 'params'
+    location: err.location,
   }));
 
-  console.error("🔴 Validation Error:", {
+  logger.error("🔴 Validation Error:", {
     path: req.originalUrl,
     method: req.method,
     errors: extractedErrors,
   });
 
-  return next(
-    new ApiError(422, "Validation Error", {
-      validationErrors: extractedErrors,
-    })
-  );
+  return res.status(422).json({
+    name: "ApiError",
+    statusCode: 422,
+    error: extractedErrors,
+    success: false,
+  });
+  
 };

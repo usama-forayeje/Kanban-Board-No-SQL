@@ -1,6 +1,5 @@
 import Mailgen from "mailgen";
 import nodemailer from "nodemailer";
-import asyncHandler from "./async-handler.js";
 import { ApiError } from "./api-errors.js";
 
 export const sendMail = async (options) => {
@@ -76,3 +75,30 @@ export const forgotPasswordMailGenContent = async (username, passwordResetUrl) =
     },
   };
 };
+
+export const twoFactorAuthMailGenContent = async (username, otp) => {
+  return {
+    body: {
+      name: username,
+      intro: "We received a request to verify your identity via OTP.",
+      action: {
+        instruction: `Your OTP is:`,
+        button: {
+          color: "#22BC66",
+          text: `${otp}`,  // Display OTP in the button itself
+          link: "#", // OTP verification URL if needed
+        },
+      },
+      outro: `This OTP will expire in 5 minutes. If you did not request this, please ignore this message.`,
+      table: {
+        data: [
+          {
+            OTP: `<strong style="font-size: 24px; color: #ff6b6b;">${otp}</strong>`, // Highlight OTP in big, bold, red color
+          },
+        ],
+      },
+      signature: "If you need assistance, feel free to reply to this email. We're happy to help.",
+    },
+  };
+};
+
